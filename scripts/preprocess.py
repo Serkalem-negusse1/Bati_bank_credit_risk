@@ -1,14 +1,28 @@
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+import pandas as pd
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 
-def encode_categorical(data, columns):
-    """Encode categorical variables."""
-    encoder = LabelEncoder()
-    for col in columns:
-        data[col] = encoder.fit_transform(data[col])
-    return data
+def preprocess_data(df):
+    """Preprocesses the dataset."""
+    numeric_features = df.select_dtypes(include=['float64', 'int64']).columns
+    categorical_features = df.select_dtypes(include=['object']).columns
 
-def scale_features(data, columns):
-    """Scale numerical features."""
-    scaler = StandardScaler()
-    data[columns] = scaler.fit_transform(data[columns])
-    return data
+    numeric_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='mean')),
+        ('scaler', StandardScaler())
+    ])
+
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore'))
+    ])
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numeric_transformer, numeric_features),
+            ('cat', categorical_transformer, categorical_features)
+        ])
+
+    return preprocessor
