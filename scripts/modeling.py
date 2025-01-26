@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
 import pickle
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix, roc_curve, auc
+from sklearn.utils.class_weight import compute_class_weight
 import seaborn as sns
 import matplotlib.pyplot as plt
 import joblib
@@ -15,6 +16,11 @@ def save_model(model, filename):
 
 # Function to visualize feature importance (for Random Forest, Gradient Boosting)
 def plot_feature_importance(model, feature_names):
+    if isinstance(feature_names, np.ndarray):  # Handle NumPy array
+        feature_names = [f"Feature {i}" for i in range(len(feature_names))]
+    elif hasattr(feature_names, "columns"):  # Handle DataFrame
+        feature_names = feature_names.columns.tolist()
+        
     importance = model.feature_importances_
     feature_importance = pd.DataFrame({'Feature': feature_names, 'Importance': importance})
     feature_importance = feature_importance.sort_values(by='Importance', ascending=False)
@@ -78,17 +84,31 @@ def train_and_evaluate_models_with_tuning(X_train, X_test, y_train, y_test):
         }
     }
 
+    # Compute class weights
+    class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(y_train), y=y_train)
+    class_weight_dict = dict(zip(np.unique(y_train), class_weights))
+
     for name, model in models.items():
         print(f"Training and tuning {name}...")
-        best_model = perform_grid_search(model, param_grids[name], X_train, y_train)
-        y_pred = best_model.predict(X_test)
-        y_prob = best_model.predict_proba(X_test)[:, 1]  # For ROC-AUC
 
-        # Calculate accuracy, precision, recall, f1 score, and ROC-AUC
+        # If using RandomForest or GradientBoosting, pass class weights
+        if isinstance(model, RandomForestClassifier):
+            model = RandomForestClassifier(class_weight=class_weight_dict)
+        elif isinstance(model, GradientBoostingClassifier):
+            model = GradientBoostingClassifier()
+
+        # Perform GridSearchCV
+        best_model = perform_grid_search(model, param_grids[name], X_train, y_train)
+
+        # Get predictions and probabilities
+        y_prob = best_model.predict_proba(X_test)[:, 1]  # Probabilities for ROC-AUC
+        y_pred = (y_prob >= 0.5).astype(int)  # Convert probabilities to binary labels
+
+        # Calculate metrics
         accuracy = accuracy_score(y_test, y_pred)
-        precision = precision_score(y_test, y_pred)
-        recall = recall_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred, zero_division=1)
+        recall = recall_score(y_test, y_pred, zero_division=1)
+        f1 = f1_score(y_test, y_pred, zero_division=1)
         roc_auc = roc_auc_score(y_test, y_prob)
 
         print(f"{name} Accuracy: {accuracy:.4f}")
@@ -100,9 +120,14 @@ def train_and_evaluate_models_with_tuning(X_train, X_test, y_train, y_test):
         # Visualizations
         plot_confusion_matrix(y_test, y_pred)
         plot_roc_curve(y_test, y_prob)
-        plot_feature_importance(best_model, X_train.columns)
 
+        # Feature importance visualization for applicable models
+        if hasattr(best_model, "feature_importances_"):
+            plot_feature_importance(
+                best_model, 
+                X_train if isinstance(X_train, pd.DataFrame) else np.arange(X_train.shape[1])
+            )
+        
         # Save the trained model as a pickle file
         save_model(best_model, f"{name.replace(' ', '_').lower()}_model.pkl")
-
         print("\n")
