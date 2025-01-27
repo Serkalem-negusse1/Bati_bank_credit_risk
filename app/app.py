@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import pickle
 import numpy as np
 import os
-
+ 
 app = Flask(__name__)
 
 # Load the model
